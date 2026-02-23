@@ -37,7 +37,7 @@ public class ItemServiceWebClient implements ItemService {
         Map<String, Object> params = new HashMap<>();
         params.put("id", id);
 
-        try {
+//        try {
             return Optional.of(client.build().get()
                     .uri("/{id}", params)
                     .accept(MediaType.APPLICATION_JSON)
@@ -45,8 +45,8 @@ public class ItemServiceWebClient implements ItemService {
                     .bodyToMono(Product.class)
                     .map(product -> new Item(product, new Random().nextInt(10) + 1))
                     .block());
-        } catch (WebClientResponseException e) {
-            return Optional.empty();
-        }
+//        } catch (WebClientResponseException e) {
+//            return Optional.empty();
+//        }
     }
 }

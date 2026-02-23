@@ -1,37 +1,125 @@
 package house.microservicio_items.controllers;
 
 import house.microservicio_items.models.Item;
+import house.microservicio_items.models.Product;
 import house.microservicio_items.services.ItemService;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.timelimiter.annotation.TimeLimiter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.cloud.client.circuitbreaker.CircuitBreakerFactory;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
+import javax.swing.text.html.Option;
+import java.time.LocalDate;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 @RestController
 public class ItemController {
 
+    private final Logger logger = LoggerFactory.getLogger(ItemController.class);
     private final ItemService service;
+    private final CircuitBreakerFactory cBreakerFactory;
 
-    public ItemController(@Qualifier("itemServiceWebClient") ItemService service) {
+    public ItemController(@Qualifier("itemServiceWebClient") ItemService service,
+                          CircuitBreakerFactory cBreakerFactory) {
         this.service = service;
+        this.cBreakerFactory = cBreakerFactory;
     }
 
     @GetMapping
-    public List<Item> getAll() {
+    public List<Item> getAll(@RequestParam(name = "name", required = false) String name,
+                             @RequestHeader(name = "token-request", required = false) String token) {
+        System.out.println(name);
+        System.out.println(token);
         return service.findAll();
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<?> getById(@PathVariable Long id) {
-        Optional<Item> item = service.findById(id);
-        if (item.isPresent()) {
-            return ResponseEntity.ok(item.get());
+    public ResponseEntity<?> details(@PathVariable Long id) {
+
+        Optional<Item> itemOptional = cBreakerFactory.create("items").run(() -> service.findById(id)
+                , e -> {
+                    System.out.println(e.getMessage());
+                    logger.error(e.getMessage());
+
+                    Product product = new Product();
+                    product.setId(1L);
+                    product.setName("Camara Sony");
+                    product.setPrice(500.00);
+                    product.setCreateAt(LocalDate.now());
+
+                    return Optional.of(new Item(product, 5));
+                }
+        );
+
+        if (itemOptional.isPresent()) {
+            return ResponseEntity.ok(itemOptional.get());
         }
-        return ResponseEntity.status(404).body(Collections.singletonMap("message", "Item not found"));
+        return ResponseEntity.status(404).body(Collections.singletonMap("message", "Product not found in microservice"));
     }
+
+    @CircuitBreaker(name = "items", fallbackMethod = "getFallBackMethodProduct")
+    @GetMapping("/details/{id}")
+    public ResponseEntity<?> details2(@PathVariable Long id) {
+
+        Optional<Item> itemOptional = service.findById(id);
+
+        if (itemOptional.isPresent()) {
+            return ResponseEntity.ok(itemOptional.get());
+        }
+        return ResponseEntity.status(404).body(Collections.singletonMap("message", "Product not found in microservice"));
+    }
+
+    @CircuitBreaker(name = "items", fallbackMethod = "getFallBackMethodProduct2")
+    @TimeLimiter(name = "items", fallbackMethod = "getFallBackMethodProduct2")
+    @GetMapping("/details2/{id}")
+    public CompletableFuture<?> details3(@PathVariable Long id) {
+
+        return CompletableFuture.supplyAsync(() -> {
+            Optional<Item> itemOptional = service.findById(id);
+
+            if (itemOptional.isPresent()) {
+                return ResponseEntity.ok(itemOptional.get());
+            }
+            return ResponseEntity.status(404).body(Collections.singletonMap("message", "Product not found in microservice"));
+        });
+    }
+
+    public ResponseEntity<?> getFallBackMethodProduct(Throwable e) {
+
+        System.out.println(e.getMessage());
+        logger.error(e.getMessage());
+
+        Product product = new Product();
+        product.setId(1L);
+        product.setName("Camara Sony");
+        product.setPrice(500.00);
+        product.setCreateAt(LocalDate.now());
+
+        return ResponseEntity.ok(new Item(product, 5));
+    }
+
+    public CompletableFuture<?> getFallBackMethodProduct2(Throwable e) {
+
+        return CompletableFuture.supplyAsync(() -> {
+
+            System.out.println(e.getMessage());
+            logger.error(e.getMessage());
+
+            Product product = new Product();
+            product.setId(1L);
+            product.setName("Camara Sony");
+            product.setPrice(500.00);
+            product.setCreateAt(LocalDate.now());
+
+            return ResponseEntity.ok(new Item(product, 5));
+        });
+    }
+
 }
